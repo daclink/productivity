@@ -3,6 +3,7 @@ from optparse import OptionParser
 import sqlite3 as lite
 import sys
 
+
 def main():
 	usage = 'Usage: %prog [option]'
 	parser = OptionParser(usage)
@@ -13,10 +14,15 @@ def main():
 	parser.add_option('--desc', action='store_true', dest='asc_desc', help='Sort in descending order (DEFAULT)')
 	parser.add_option('--asc', action='store_false', dest='asc_desc', help='Sort in ascending order.')
 	parser.add_option('-f', '--find', dest='tag', help='find by tag')
+	parser.add_option('-c','--complete',
+						type='string',
+						action='callback',
+						callback=complete_todo)
 	parser.add_option('--all',
 						type='string',
 						action='callback', 
-						callback=list_todos)
+						callback=list_todos,
+						help='list all open todos')
 	parser.add_option('--add',
 						type='string',
 						action='callback', 
@@ -25,39 +31,51 @@ def main():
 
 	(options, args) = parser.parse_args()
 
-	print "%i is the length of args" %len(args)
-
-	print "Todo == %s" %options.asc_desc
-
 #=-=-=- end parsing
-
 
 #=-=-=- operations
 def add_todo(option, opt, value, parser):
 	userID = 1
 	print "adding a todo"
 	setattr(parser.values, option.dest, value)
-	foo = value
 	con = DB_connect().__enter__()
 	cursor = con.cursor()
-	s = "insert into todo(desc, created, ownerid) values ('%(todo)s',date('now'),'%(id)d')" %{"todo":value, "id":userID}
-	print s
-	cursor.execute(s)
+	query = "INSERT INTO todo(desc, created, ownerid) "\
+			"VALUES ('%(todo)s',date('now'),'%(id)d')"\
+			%{"todo":value, "id":userID}
+	cursor.execute(query)
 	con.commit()
 #	DB_connect().__exit__(con)
 
+def complete_todo(option, opt, value, parser):
+	print value
+	print "that was the value"
+	con = DB_connect().__enter__()
+	cursor = con.cursor()
+	query = "UPDATE todo "\
+			"SET completed = (SELECT date('now')) "\
+			"WHERE id='%(id)s'"\
+			%{'id':value}
+	print query
+	if cursor.execute(query):
+		con.commit()
+	else:
+		con.rollback()
+
 def list_todos(option, opt, value, parser):
 	setattr(parser.values, option.dest, value)
-	print "Here we go!"
 	#desc = option.value.asc_desc
-	desc = True
+	desc = False 
 	print "option.values.asc_desc == %s" %desc
 	sortDir = 'desc' if desc else 'asc'
 	userID = 1
 	print "listing todos"
 	con = DB_connect().__enter__()
 	cursor = con.cursor()
-	query = "select * from todo where ownerid='%(userID)d' order by created %(sortDir)s"\
+	query = "SELECT t.id, t.desc, t.created, o.uname, t.completed "\
+			"FROM todo t LEFT OUTER JOIN owner o "\
+			"WHERE ownerid='%(userID)d' "\
+			"ORDER BY t.created, t.completed, t.id %(sortDir)s"\
 			%{"userID":userID,"sortDir":sortDir}
 	print "query is %s" %query
 	cursor.execute(query)
@@ -66,10 +84,10 @@ def list_todos(option, opt, value, parser):
 
 	rows = cursor.fetchall()
 
-	print "%s %-10s %s %s" %(col_names[0], col_names[1], col_names[2], col_names[3])
+	print "%s %-30s %-15s %-10s %-15s" %(col_names[0], col_names[1], col_names[2], col_names[3], col_names[4])
 
 	for row in rows:
-		print "%2d %-10s %s %d" % row
+		print "%2d %-30s %-15s %-10s %-15s" % row
 
 #def add_todo():
 	
@@ -83,8 +101,9 @@ def list_todos(option, opt, value, parser):
 class DB_connect:
 
 	def __enter__(self):
+		db = "../db/todo.db"
 		try:
-			con = lite.connect('todo.db')
+			con = lite.connect(db)
 			return con
 		except lite.Error, e:
 			print "Error %s:" % e.args[0]
